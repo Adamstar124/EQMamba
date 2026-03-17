@@ -1,0 +1,76 @@
+run:
+  run_name: eqmamba2x_y3_zarr
+  save_dir: ./checkpoints
+  device: cuda
+  seed: 42
+
+data:
+  source: zarr
+  T: null
+  train_n: 1024
+  val_n: 256
+  batch_size: 256
+  num_workers: 20
+  persistent_workers: true
+  prefetch_factor: 2
+  zarr:
+    root_dir: ./data/output
+    events_per_sample: [2, 3]
+    source_fractions:
+      shift: 0.5
+    train_paths: null
+    val_paths: null
+    bandpass: [1.0, 45.0]
+    triangle_half_width: 10
+    gap_prob: 0.2
+    gap_min_sec: 0.5
+    gap_max_sec: 5.0
+    drop_prob: 0.3
+    drop_noise_scale: 1.0
+    use_written: true
+
+train:
+  epochs: 1000
+  lr: 0.00001
+  wd: 0.1
+  amp: false
+  grad_clip: 1.0
+  log_every: 10
+  log_csv: true
+  csv_path: null
+  sched: plateau
+  sched_patience: 3
+  early_stop_patience: 0
+
+loss:
+  type: bce
+  wP: 0.3
+  wS: 0.5
+  wE: 0.2
+  focal:
+    alpha: [0.25, 0.25, 0.25]
+    gamma: 2.0
+    eps: 1.0e-6
+
+metrics:
+  thr_p: 0.5
+  thr_s: 0.5
+  thr_event: 0.5
+  tol_p: 10
+  tol_s: 10
+  iou_thr: 0.3
+  merge_gap_event: 0
+
+model:
+  d_model: 64
+  d_state: 16
+  core_mamba_nums: 4
+  decode_mamba_nums: 2
+  performer_heads: 4
+  cnn:
+    c0: 16
+    c1: 32
+    c2: 64
+    k: 7
+    norm: gn
+    act: silu
