@@ -27,6 +27,9 @@ EQMamba 是一個用於地震波形事件偵測與 P/S 相位挑選（phase pick
 ![shift example 1](showcase/shift_val_idx050013.png)
 ![shift example 2](showcase/shift_val_idx050011.png)
 
+### STEAD Test Comparison
+![STEAD test pick error density compare](showcase/stead_test_pick_error_hist_density_compare.png)
+
 ## 使用方式（簡要）
 1. 準備資料與設定檔（`configs/`）
 2. 執行訓練：`python train.py --config configs/train.yaml`
