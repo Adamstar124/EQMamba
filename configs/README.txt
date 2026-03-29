@@ -31,13 +31,16 @@ train
   early_stop_patience: Early stopping patience in epochs. Use 0 to disable.
 
 loss
-  type: Loss type. Use bce (default) or focal.
+  type: Loss type. Use bce (default), focal, or bce_dice.
   wP: Loss weight for P channel.
   wS: Loss weight for S channel.
   wE: Loss weight for event channel.
   focal/alpha: Focal alpha for [P, S, event], each in [0, 1].
   focal/gamma: Focusing factor gamma (>= 0), larger emphasizes hard samples.
   focal/eps: Small epsilon added inside log for numerical stability.
+  dice/bce_ratio: BCE weight in bce_dice combined loss (default 0.5).
+  dice/dice_ratio: Dice weight in bce_dice combined loss (default 0.5).
+  dice/eps: Small epsilon for Dice numerical stability.
 
 metrics
   thr_p: Peak threshold for P predictions.

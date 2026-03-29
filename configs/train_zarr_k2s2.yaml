@@ -1,5 +1,5 @@
 run:
-  run_name: eqmamba_k2s2_3-3
+  run_name: eqmamba_k2s2_dice_3-6_balanced
   save_dir: ./checkpoints
   device: cuda
   seed: 42
@@ -43,13 +43,17 @@ train:
   early_stop_patience: 0
 
 loss:
-  type: focal    # bce | focal
+  type: bce_dice    # bce | focal | bce_dice
   wP: 0.3
   wS: 0.5
   wE: 0.2
   focal:
     alpha: [0.70, 0.70, 0.70]
     gamma: 2.0
+    eps: 1.0e-6
+  dice:
+    bce_ratio: 0.95
+    dice_ratio: 0.05
     eps: 1.0e-6
 
 metrics:

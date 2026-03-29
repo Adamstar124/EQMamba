@@ -177,3 +177,54 @@ def focal_logits_loss_y3_tensor(
     per_ch = loss_map.mean(dim=(0, 2))  # (3,)
     w = weights.as_tensor(device=per_ch.device, dtype=per_ch.dtype)
     return (w * per_ch).sum()
+
+
+def dice_logits_loss_y3_tensor(
+    logits3: torch.Tensor,
+    batch: Mapping[str, Any],
+    weights: LossWeights3 = LossWeights3(),
+    eps: float = 1e-6,
+    y_key: str = "y",
+) -> torch.Tensor:
+    """
+    Soft dice loss on logits for (B,3,T), with channel order [P,S,Event].
+
+    Dice_ch = (2 * sum(p*y) + eps) / (sum(p) + sum(y) + eps)
+    Loss_ch = 1 - Dice_ch
+    """
+    _check_logits_y3(logits3)
+    y = _get_targets_y3(batch, y_key=y_key)
+    if logits3.shape != y.shape:
+        raise ValueError(f"Shape mismatch: logits3 {tuple(logits3.shape)} vs y {tuple(y.shape)}")
+    if eps <= 0.0:
+        raise ValueError(f"eps must be > 0, got {eps}")
+
+    p = torch.sigmoid(logits3)  # (B,3,T)
+    numerator = 2.0 * (p * y).sum(dim=(0, 2)) + eps  # (3,)
+    denominator = p.sum(dim=(0, 2)) + y.sum(dim=(0, 2)) + eps  # (3,)
+    per_ch = 1.0 - (numerator / denominator)  # (3,)
+
+    w = weights.as_tensor(device=per_ch.device, dtype=per_ch.dtype)
+    return (w * per_ch).sum()
+
+
+def bce_dice_logits_loss_y3_tensor(
+    logits3: torch.Tensor,
+    batch: Mapping[str, Any],
+    weights: LossWeights3 = LossWeights3(),
+    bce_ratio: float = 0.5,
+    dice_ratio: float = 0.5,
+    dice_eps: float = 1e-6,
+    y_key: str = "y",
+) -> torch.Tensor:
+    """
+    Combined loss = bce_ratio * BCE + dice_ratio * Dice.
+    """
+    if bce_ratio < 0.0 or dice_ratio < 0.0:
+        raise ValueError(f"bce_ratio and dice_ratio must be >= 0, got {bce_ratio}, {dice_ratio}")
+    if (bce_ratio + dice_ratio) <= 0.0:
+        raise ValueError(f"bce_ratio + dice_ratio must be > 0, got {bce_ratio + dice_ratio}")
+
+    bce_loss = bce_logits_loss_y3_tensor(logits3, batch, weights=weights, y_key=y_key)
+    dice_loss = dice_logits_loss_y3_tensor(logits3, batch, weights=weights, eps=dice_eps, y_key=y_key)
+    return (bce_ratio * bce_loss) + (dice_ratio * dice_loss)

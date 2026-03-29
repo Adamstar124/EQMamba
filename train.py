@@ -14,7 +14,13 @@ from torch.utils.data import Dataset, DataLoader
 
 from models.eqmamba import EQMamba2x, EQMamba2xConfig
 from training.trainer import Trainer, TrainerConfig
-from training.losses import bce_logits_loss_y3_tensor, focal_logits_loss_y3_tensor, LossWeights3
+from training.losses import (
+    bce_logits_loss_y3_tensor,
+    dice_logits_loss_y3_tensor,
+    focal_logits_loss_y3_tensor,
+    bce_dice_logits_loss_y3_tensor,
+    LossWeights3,
+)
 from training.metrics import Y3EventMetrics, EventMetricConfig
 
 
@@ -101,7 +107,41 @@ def build_loss_fn(loss_cfg: Dict[str, Any]):
             eps=eps,
         )
 
-    raise ValueError(f"Unknown loss.type: {loss_type}. Supported: bce, focal")
+    if loss_type == "bce_dice":
+        dice_cfg = loss_cfg.get("dice", {}) or {}
+        bce_ratio = float(dice_cfg.get("bce_ratio", 0.5))
+        dice_ratio = float(dice_cfg.get("dice_ratio", 0.5))
+        dice_eps = float(dice_cfg.get("eps", 1e-6))
+        return lambda logits3, batch: bce_dice_logits_loss_y3_tensor(
+            logits3,
+            batch,
+            weights=w,
+            bce_ratio=bce_ratio,
+            dice_ratio=dice_ratio,
+            dice_eps=dice_eps,
+        )
+
+    raise ValueError(f"Unknown loss.type: {loss_type}. Supported: bce, focal, bce_dice")
+
+
+def build_loss_items_fn(loss_cfg: Dict[str, Any]):
+    w = LossWeights3(P=loss_cfg["wP"], S=loss_cfg["wS"], event=loss_cfg["wE"])
+    loss_type = str(loss_cfg.get("type", "bce")).lower()
+    if loss_type != "bce_dice":
+        return None
+
+    dice_cfg = loss_cfg.get("dice", {}) or {}
+    dice_eps = float(dice_cfg.get("eps", 1e-6))
+
+    def _items(logits3, batch):
+        bce_loss = bce_logits_loss_y3_tensor(logits3, batch, weights=w)
+        dice_loss = dice_logits_loss_y3_tensor(logits3, batch, weights=w, eps=dice_eps)
+        return {
+            "bce_loss": float(bce_loss.detach().item()),
+            "dice_loss": float(dice_loss.detach().item()),
+        }
+
+    return _items
 
 
 # ----------------------------
@@ -328,6 +368,7 @@ def main():
 
     # 4) Loss / Metrics
     loss_fn = build_loss_fn(loss_cfg)
+    loss_items_fn = build_loss_items_fn(loss_cfg)
 
     metrics = Y3EventMetrics(
         EventMetricConfig(
@@ -359,6 +400,7 @@ def main():
         optimizer=optimizer,
         scheduler=scheduler,
         loss_fn=loss_fn,
+        loss_items_fn=loss_items_fn,
         cfg=trainer_cfg,
         metrics=metrics,
     )

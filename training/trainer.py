@@ -47,12 +47,14 @@ class Trainer:
         scheduler: Optional[Any],
         loss_fn: Callable[[torch.Tensor, Dict[str, Any]], torch.Tensor],
         cfg: TrainerConfig,
+        loss_items_fn: Optional[Callable[[torch.Tensor, Dict[str, Any]], Dict[str, float]]] = None,
         metrics: Optional[Any] = None,  # e.g. Y3EventMetrics
     ):
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.loss_fn = loss_fn
+        self.loss_items_fn = loss_items_fn
         self.cfg = cfg
         self.metrics = metrics
 
@@ -137,6 +139,7 @@ class Trainer:
             self.metrics.reset()
 
         loss_sum = 0.0
+        loss_items_sum: Dict[str, float] = {}
         step = 0
         source_stats: Dict[str, Dict[str, Any]] = {} if compute_source_stats else {}
 
@@ -164,6 +167,12 @@ class Trainer:
             step += 1
             pbar.set_postfix(loss=f"{loss_f:.4f}", lr=f"{self._current_lr(self.optimizer):.6g}")
 
+            if self.loss_items_fn is not None:
+                with torch.no_grad():
+                    items = self.loss_items_fn(logits3.detach(), {"y": batch["y"].detach()})
+                    for k, v in items.items():
+                        loss_items_sum[k] = loss_items_sum.get(k, 0.0) + float(v)
+
             if compute_metrics and self.metrics is not None:
                 # ✅ tensor-only metrics
                 self.metrics.update(logits3, batch["y"])
@@ -184,7 +193,8 @@ class Trainer:
                         if stats["metrics"] is not None:
                             stats["metrics"].update(logits_s, y_s)
 
-        return loss_sum / max(step, 1), source_stats
+        loss_items_avg = {k: (v / max(step, 1)) for k, v in loss_items_sum.items()}
+        return loss_sum / max(step, 1), loss_items_avg, source_stats
 
     @torch.no_grad()
     def validate(self, val_loader, epoch: int, compute_metrics: bool = True, compute_source_stats: bool = True):
@@ -193,6 +203,7 @@ class Trainer:
             self.metrics.reset()
 
         loss_sum = 0.0
+        loss_items_sum: Dict[str, float] = {}
         step = 0
         source_stats: Dict[str, Dict[str, Any]] = {} if compute_source_stats else {}
 
@@ -207,6 +218,11 @@ class Trainer:
             loss_sum += loss_f
             step += 1
             pbar.set_postfix(loss=f"{loss_f:.4f}")
+
+            if self.loss_items_fn is not None:
+                items = self.loss_items_fn(logits3.detach(), {"y": batch["y"].detach()})
+                for k, v in items.items():
+                    loss_items_sum[k] = loss_items_sum.get(k, 0.0) + float(v)
 
             if compute_metrics and self.metrics is not None:
                 self.metrics.update(logits3, batch["y"])
@@ -226,7 +242,8 @@ class Trainer:
                     if stats["metrics"] is not None:
                         stats["metrics"].update(logits_s, y_s)
 
-        return loss_sum / max(step, 1), source_stats
+        loss_items_avg = {k: (v / max(step, 1)) for k, v in loss_items_sum.items()}
+        return loss_sum / max(step, 1), loss_items_avg, source_stats
 
     def fit(self, train_loader, val_loader, epochs: int, start_epoch: int = 0):
         no_improve = 0
@@ -234,13 +251,13 @@ class Trainer:
         log_interval = max(1, int(self.cfg.log_every or 1))
         for epoch in range(start_epoch, epochs):
             should_log = ((epoch + 1) % log_interval == 0) or (epoch == epochs - 1)
-            tr, tr_sources = self.train_one_epoch(
+            tr, tr_loss_items, tr_sources = self.train_one_epoch(
                 train_loader, epoch, compute_metrics=should_log, compute_source_stats=should_log
             )
             train_metrics = (
                 self.metrics.as_dict(prefix="train") if (self.metrics is not None and should_log) else {}
             )
-            va, va_sources = self.validate(
+            va, va_loss_items, va_sources = self.validate(
                 val_loader, epoch, compute_metrics=should_log, compute_source_stats=should_log
             )
             val_metrics = (
@@ -267,6 +284,8 @@ class Trainer:
                     "val/loss": float(va),
                     "lr": self._current_lr(self.optimizer),
                 }
+                row.update({f"train/{k}": float(v) for k, v in tr_loss_items.items()})
+                row.update({f"val/{k}": float(v) for k, v in va_loss_items.items()})
                 if should_log:
                     row.update(train_metrics)
                     row.update(val_metrics)
